@@ -9,6 +9,7 @@
 #include <stdbool.h>
 
 #define MAX_ARGS 2000
+#define BUFFER_SIZE 16384
 
 void myPrint(char *msg) {
   write(STDOUT_FILENO, msg, strlen(msg));
@@ -39,53 +40,79 @@ void parse_input(char* input, char* args[], char* delimiter) {
 
 /* Returns true if file descriptor is successfully changed. */
 bool basic_redirect(char* args[]) {
-  int fd, i;
+  int fd, i, j;
   char* filename;
   char* arr[MAX_ARGS];
+  bool found = false;
   for (i = 0; args[i]; i++) {
     if (strstr(args[i], ">")) {
+      if (found) return false;
       if (!strcmp(args[i], ">")) {
         filename = args[i+1];
         if (args[i+2]) return false;
+        for (j = i; args[j]; j++) {
+          args[j] = args[j+1];
+        }
+        args[j-1] = '\0';
       } else {
         parse_input(args[i], arr, ">");
         filename = arr[1];
         if (arr[2]) return false;
+        args[1] = filename;
+        args[2] = '\0';
       }
-      break;
+      found = true;
     }
   }
+  for (j = 0; args[j]; j++);
+  args[j-1] = '\0';
   if (!filename) return false;
   fd = open(filename, O_RDONLY, 0644);
   if (fd >= 0) return false;
-  fd = open(filename, O_WRONLY | O_CREAT, 0644);
-  if (dup2(fd, STDOUT_FILENO) < 0) {
+  fd = open(filename, O_RDWR | O_CREAT, 0644);
+  if (fd < 0) return false;
+  int dup_ret = dup2(fd, STDOUT_FILENO);
+  if (dup_ret < 0) {
     close(fd);
     return false;
   }
+  if (execvp(args[0], args) < 0) return false;
   close(fd);
   return true;
 }
 
 /* Returns true if file descriptor is successfully changed. */
 bool adv_redirect(char* args[]) {
-  int fd_main, i, fd_temp;
+  int fd_main, i, j, fd_temp;
   char* filename;
   char* arr[MAX_ARGS];
+  bool found = false;
   for (i = 0; args[i]; i++) {
     if (strstr(args[i], ">+")) {
+      if (found) return false;
       if (!strcmp(args[i], ">+")) {
         filename = args[i+1];
+        if (args[i+2]) return false;
+        for (j = i; args[j]; j++) {
+          args[j] = args[j+1];
+        }
+        args[j-1] = '\0';
       } else {
         parse_input(args[i], arr, ">+");
         filename = arr[1];
+        if (arr[2]) return false;
+        args[1] = filename;
+        args[2] = '\0';
       }
+      found = true;
     }
-    break;
   }
-  if (!filename) return -1;
+  if (!filename) return false;
   fd_main = open(filename, O_RDONLY, 0644);
-  if (fd_main < 0) return basic_redirect(args);
+  if (fd_main < 0) {
+    close(fd_main);
+    return basic_redirect(args);
+  }
   fd_temp = open("tmp_redir.txt", O_CREAT | O_RDWR, 0644);
   if (dup2(fd_temp, STDOUT_FILENO) < 0) {
     close(fd_temp);
@@ -94,22 +121,22 @@ bool adv_redirect(char* args[]) {
   if (execvp(args[0], args) < 0) {
     return false;
   }
-  char buffer[8192];
+  char buffer[16384];
   ssize_t bytes_read, bytes_written;
   while (true) {
-    bytes_read = read(fd_main, buffer, 8192);
+    bytes_read = read(fd_main, buffer, 16384);
     if (bytes_read < 0) {
       return false;
     }
-    bytes_written = write(fd_temp, buffer, 8192);
-    if (bytes_written < 8192) {
+    bytes_written = write(fd_temp, buffer, 16384);
+    if (bytes_written < 16384) {
       break;
     }
   }
   lseek(fd_temp, 0, SEEK_SET);
   ftruncate(fd_main, 0);
   lseek(fd_main, 0, SEEK_SET);
-  while ((bytes_read = read(fd_temp, buffer, 8192)) > 0) {
+  while ((bytes_read = read(fd_temp, buffer, 16384)) > 0) {
     bytes_written = write(fd_main, buffer, bytes_read);
     if (bytes_written != bytes_read) return false;
   }
@@ -118,11 +145,6 @@ bool adv_redirect(char* args[]) {
   close(fd_temp);
   if (unlink("tmp_redir.txt") < 0) return false;
   return true;
-}
-
-void append_to_file(int fd, char* text) {
-  write(fd, text, strlen(text));
-  close(fd);
 }
 
 void run_pwd(char* args[]) {
@@ -175,9 +197,8 @@ void run_cmd(char* args[]) {
         case BASIC:
           if (!basic_redirect(args)) {
             raise_error();
-            return;
           }
-          break;
+          return;
         case ADV:
           if (!adv_redirect(args)) {
             raise_error();
@@ -207,12 +228,12 @@ void run_multiple_cmds(char* input) {
 
 void run_batch_file(char* args[]) {
   int fd = open(args[1], O_RDONLY);
-  char buffer[8192];
+  char buffer[16384];
   if (fd < 0) {
     raise_error();
     exit(1);
   }
-  read(fd, buffer, 8192);
+  read(fd, buffer, 16384);
   run_multiple_cmds(buffer);
   int retval = close(fd);
   if (retval < 0) raise_error();
