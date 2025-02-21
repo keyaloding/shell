@@ -8,49 +8,14 @@
 #include <sys/wait.h>
 #include <stdbool.h>
 
-#define MAX_ARGS 400
+#define MAX_ARGS 2000
 
 void myPrint(char *msg) {
   write(STDOUT_FILENO, msg, strlen(msg));
 }
 
-/* Prints error message but does not kill the process. */
 void raise_error() {
-  char* error_message = "An error has occurred\n";
-  myPrint(error_message);
-}
-
-void basic_redirect(char* msg, char* filename) {
-  pid_t forkret = fork();
-  if (forkret < 0) raise_error();
-  else if (forkret == 0) {
-    int fd = open(filename, O_RDONLY);
-    if (fd > 0) {
-      raise_error();
-      return;
-    }
-    fd = open(filename, O_CREAT | O_WRONLY);
-    if (fd < 0) {
-      raise_error();
-    }
-    ssize_t num_bytes = write(fd, msg, strlen(msg));
-    if (num_bytes < 0) {
-      raise_error();
-    }
-    close(fd);
-  } else {
-    wait(NULL);
-  }
-}
-
-void adv_redirect(char* msg, char* filename) {
-  int fd;
-  fd = open(filename, O_RDONLY);
-  if (fd < 0) {
-    basic_redirect(msg, filename);
-    return;
-  }
-
+  myPrint("An error has occurred\n");
 }
 
 enum redirect {
@@ -58,20 +23,78 @@ enum redirect {
   BASIC,
   ADV
 };
-typedef enum redirect redirect;
 
-void run_pwd(char* args[], redirect type) {
+/* Converts the input string to an array of arguments. */
+void parse_input(char* input, char* args[], char* delimiter) {
+  char *token;
+  int i = 0;
+  while ((token = strsep(&input, delimiter)) != NULL) {
+    if (*token == '\0') continue;
+    args[i++] = token;
+    if (i >= MAX_ARGS - 1) break;
+  }
+  args[i] = NULL;
+}
+
+/* Returns true if file descriptor is successfully changed. */
+bool basic_redirect(char* args[]) {
+  int fd;
+  bool found = false; // Indicates whether the '>' has already been found
+  char* arr[MAX_ARGS]; // Stores the command and file
+  char* filename;
+  // myPrint("running...\n");
+  for (int i = 0; args[i]; i++) {
+    if (strstr(args[i], ">") && found) return false;
+    if (!strcmp(args[i], ">")) {
+      // printf("args[%d]: %s, args[%d]: %s\n", i+1, args[i+1], i+2, args[i+2]);
+      filename = args[i+1];
+      fd = open(filename, O_RDONLY);
+      found = true;
+    } else if (strstr(args[i], ">")) {
+      parse_input(args[i], arr, ">");
+      filename = arr[1];
+      fd = open(filename, O_RDONLY);
+      found = true;
+    }
+  }
+  if (fd >= 0) return false;
+  fd = open(filename, O_CREAT | O_WRONLY | O_RDWR, 0644);
+  if (fd < 0) return false;
+  printf("fd: %d\n", fd);
+  if (dup2(fd, STDOUT_FILENO) < 0) {
+    close(fd);
+    return false;
+  }
+  close(fd);
+  return true;
+}
+
+/* Returns true if file descriptor is successfully changed. */
+bool adv_redirect(char* args[]) {
+  int fd;
+  bool found = false;
+  char* arr[MAX_ARGS];
+  char* filename;
+  for (int i = 0; args[i]; i++) {
+    if (strstr(args[i], ">") && found) return false;
+    if (!strcmp(args[i], ">+")) {
+      filename = args[i+1];
+      fd = open(filename, O_RDONLY);
+      found = true;
+    } else if (strstr(args[i], ">+")) {
+      parse_input(args[i], arr, ">+");
+      filename = arr[1];
+      fd = open(filename, O_RDONLY);
+      found = true;
+    }
+  }
+  if (fd < 0) return basic_redirect(args);
+  return true;
+}
+
+void run_pwd(char* args[]) {
   char dir[512];
   getcwd(dir, 512);
-  switch (type) {
-    case NONE:
-      break;
-    case BASIC:
-
-      break;
-    case ADV:
-      break;
-  };
   myPrint(dir);
   myPrint("\n");
 }
@@ -89,18 +112,69 @@ void run_cd(char* args[]) {
   }
 }
 
+/* Takes a string array. Moves elements past the '>' or '>+' characters
+ *to the left. */
+void left_shift_args(char* args[]) {
+  for (int i = 0; args[i]; i++) {
+    if (strstr(args[i], ">+")) {
+      for (int j = i; args[j]; j++) {
+        args[j] = args[j+1];
+      }
+    } else if (strstr(args[i], ">")) {
+      for (int j = i; args[j]; j++) {
+        args[j] = args[j+1];
+      }
+    }
+  }
+}
+
 void run_cmd(char* args[]) {
+  enum redirect type = NONE;
+  for (int i = 0; args[i]; i++) {
+    if (strstr(args[i], ">+")) {
+      type = ADV;
+      break;
+    } else if (strstr(args[i], ">")) {
+      type = BASIC;
+      break;
+    }
+  }
   if (!strcmp(args[0], "pwd")) {
-    run_pwd(args, NONE);
-  } else if (!strcmp(args[0], "cd")) {
-    run_cd(args);
-  } else if (!strcmp(args[0], "exit")) {
-    exit(0);
-  } else {
+    if (args[1] && strstr(">", args[1])) {
+      raise_error();
+      return;
+    }
+    run_pwd(args);
+  }
+  else if (!strcmp(args[0], "cd")) run_cd(args);
+  else if (!strcmp(args[0], "exit")) exit(0);
+  else {
     pid_t pid = fork();
     if (pid < 0) {
       raise_error();
+      return;
     } else if (pid == 0) {
+      switch (type) {
+        case BASIC:
+          if (!basic_redirect(args)) {
+            // left_shift_args(args);
+            raise_error();
+            return;
+          }
+          break;
+          case ADV:
+          if (!adv_redirect(args)) {
+            // left_shift_args(args);
+            raise_error();
+            return;
+          }
+          break;
+        default:
+          break;
+      };
+      // for (int i = 0; args[i]; i++) {
+      //   printf("%s\n", args[i]);
+      // }
       if (execvp(args[0], args) < 0) {
         raise_error();
       }
@@ -109,19 +183,6 @@ void run_cmd(char* args[]) {
     }
   }
 }
-
-/* Converts the input string to an array of arguments. */
-void parse_input(char* input, char* args[], char* delimiter) {
-  char *token;
-  int i = 0;
-  while ((token = strsep(&input, delimiter)) != NULL) {
-    if (*token == '\0') continue;
-    args[i++] = token;
-    if (i >= MAX_ARGS - 1) break;
-  }
-  args[i] = NULL;
-}
-
 
 void run_multiple_cmds(char* input) {
   char* cmds[MAX_ARGS];
@@ -132,15 +193,15 @@ void run_multiple_cmds(char* input) {
     run_cmd(args);
   }
 }
-  
+
 void run_batch_file(char* args[]) {
   int fd = open(args[1], O_RDONLY);
-  char buffer[1024];
+  char buffer[500000];
   if (fd < 0) {
     raise_error();
     exit(1);
   }
-  read(fd, buffer, 1024);
+  read(fd, buffer, 500000);
   run_multiple_cmds(buffer);
   int retval = close(fd);
   if (retval < 0) raise_error();
