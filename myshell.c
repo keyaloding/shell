@@ -1,15 +1,4 @@
-#include <stdlib.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <string.h>
-#include <signal.h>
-#include <fcntl.h>
-#include <ctype.h>
-#include <sys/wait.h>
-#include <stdbool.h>
-
-#define MAX_ARGS 2000
-#define BUFFER_SIZE 16384
+#include "myshell.h"
 
 void myPrint(char *msg) {
   write(STDOUT_FILENO, msg, strlen(msg));
@@ -19,14 +8,6 @@ void raise_error() {
   myPrint("An error has occurred\n");
 }
 
-enum redirect {
-  NONE,
-  BASIC,
-  ADV
-};
-
-/* Splits the input string by `delimiter` and stores the resulting
- * substrings in `args`. */
 void parse_input(char* input, char* args[], char* delimiter) {
   char *token;
   int i = 0;
@@ -38,7 +19,6 @@ void parse_input(char* input, char* args[], char* delimiter) {
   args[i] = NULL;
 }
 
-/* Returns true if file descriptor is successfully changed. */
 bool basic_redirect(char* args[]) {
   int fd, i, j;
   char* filename;
@@ -81,7 +61,6 @@ bool basic_redirect(char* args[]) {
   return true;
 }
 
-/* Returns true if file descriptor is successfully changed. */
 bool adv_redirect(char* args[]) {
   int fd_main, i, j, fd_temp;
   char* filename;
@@ -168,7 +147,7 @@ void run_cd(char* args[]) {
 }
 
 void run_cmd(char* args[]) {
-  enum redirect type = NONE;
+  redirect type = NONE;
   for (int i = 0; args[i]; i++) {
     if (strstr(args[i], ">+")) {
       type = ADV;
