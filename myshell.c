@@ -53,19 +53,19 @@ bool basic_redirect(char* args[]) {
         for (j = i; args[j]; j++) {
           args[j] = args[j+1];
         }
-        args[j-1] = '\0';
+        args[j-1] = NULL;
       } else {
         parse_input(args[i], arr, ">");
         filename = arr[1];
         if (arr[2]) return false;
         args[1] = filename;
-        args[2] = '\0';
+        args[2] = NULL;
       }
       found = true;
     }
   }
   for (j = 0; args[j]; j++);
-  args[j-1] = '\0';
+  args[j-1] = NULL;
   if (!filename) return false;
   fd = open(filename, O_RDONLY, 0644);
   if (fd >= 0) return false;
@@ -96,13 +96,13 @@ bool adv_redirect(char* args[]) {
         for (j = i; args[j]; j++) {
           args[j] = args[j+1];
         }
-        args[j-1] = '\0';
+        args[j-1] = NULL;
       } else {
         parse_input(args[i], arr, ">+");
         filename = arr[1];
         if (arr[2]) return false;
         args[1] = filename;
-        args[2] = '\0';
+        args[2] = NULL;
       }
       found = true;
     }

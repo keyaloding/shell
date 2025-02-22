@@ -6,7 +6,7 @@ Run the following commands in the terminal:
 
 ```Unix
 git clone https://github.com/keyaloding/shell.git
-make myshell
+cd shell
 ./myshell
 ```
 
@@ -20,10 +20,16 @@ run `./myshell [batchFile]`.
 To run multiple commands with a single input, separate the commands with
 semicolons (;). Example: `cd directory; ls; ps;`.
 
-### Redirection
+### Basic Redirection
 
 To redirect the output of a command to a file, run `[cmd] > [filename]`. If the
 file already exists, an error will be printed and the command will be skipped.
+
+### Advanced Redirection
+
+To redirect the output of a command to the beginning of a file,
+run `[cmd] >+ [filename]`. If the file does not exist, this behaves like basic
+redirection.
 
 ### Built-in commands
 
